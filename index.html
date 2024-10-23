@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Closest Store and Random Item</title>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        .container { max-width: 600px; margin: 0 auto; }
+        h1 { text-align: center; }
+        .store, .item { border: 1px solid #ccc; padding: 20px; margin-bottom: 20px; }
+        .store h2, .item h2 { margin-top: 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Closest Store and Random Item</h1>
+        <div id="content">
+            <!-- Store and item information will be displayed here -->
+        </div>
+        <button id="shuffleButton" style="display:none;">Shuffle Items</button> <!-- Hidden until an item is shown -->
+    </div>
+
+    <script>
+        // Dynamically determine the base URL
+        const isLocalhost = window.location.hostname === 'localhost';
+        const apiBaseUrl = isLocalhost ? 'http://localhost:5001' : '';  // Empty string means relative paths in production
+
+        let stores = [];
+        let currentStoreId = null;
+
+        // Fetch the stores data from the server
+        fetch(`${apiBaseUrl}/stores-with-coords`)
+            .then(response => response.json())
+            .then(data => {
+                stores = data.map(store => ({
+                    id: store.StoreId,
+                    name: store.Name,
+                    city: store.City,
+                    lat: parseFloat(store.Latitude),
+                    lng: parseFloat(store.Longitude)
+                }));
+                getUserLocation();
+            })
+            .catch(error => console.error('Error fetching store data:', error));
+
+        // Function to get the user's location
+        function getUserLocation() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(processLocation, showError);
+            } else {
+                alert("Geolocation is not supported by this browser.");
+            }
+        }
+
+        // Function to process the user's location
+        function processLocation(position) {
+            const userLat = position.coords.latitude;
+            const userLng = position.coords.longitude;
+
+            let closestStore = null;
+            let minDistance = Infinity;
+
+            stores.forEach(store => {
+                if (store.lat !== null && store.lng !== null) {
+                    const distance = getDistance(userLat, userLng, store.lat, store.lng);
+                    if (distance < minDistance) {
+                        minDistance = distance;
+                        closestStore = store;
+                    }
+                }
+            });
+
+            if (closestStore) {
+                currentStoreId = closestStore.id;
+                displayStoreInfo(closestStore, minDistance);
+                fetchRandomItem(currentStoreId);
+                document.getElementById('shuffleButton').style.display = 'block'; // Show the shuffle button
+            } else {
+                document.getElementById('content').innerHTML = '<p>No stores found near your location.</p>';
+            }
+        }
+
+        // Function to display the store information
+        function displayStoreInfo(store, distance) {
+            const contentDiv = document.getElementById('content');
+            contentDiv.innerHTML = `
+                <div class="store">
+                    <h2>Store Information</h2>
+                    <p><strong>Store Name:</strong> ${store.name}</p>
+                    <p><strong>City:</strong> ${store.city}</p>
+                    <p><strong>Store ID:</strong> ${store.id}</p>
+                    <p><strong>Distance:</strong> ${distance.toFixed(2)} km</p>
+                </div>
+            `;
+        }
+
+        // Function to fetch a random item from the store
+        function fetchRandomItem(storeId) {
+            fetch(`${apiBaseUrl}/items/${storeId}`)
+                .then(response => {
+                    if (!response.ok) {
+                        if (response.status === 404) {
+                            document.getElementById('content').innerHTML += '<p>No item data found for this store.</p>';
+                        } else {
+                            document.getElementById('content').innerHTML += '<p>Error fetching items.</p>';
+                        }
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.text();
+                })
+                .then(xmlString => {
+                    const parser = new DOMParser();
+                    const xmlDoc = parser.parseFromString(xmlString, "application/xml");
+                    const items = Array.from(xmlDoc.getElementsByTagName('Item')).map(item => ({
+                        name: item.getElementsByTagName('ItemName')[0].textContent,
+                        quantity: item.getElementsByTagName('Quantity')[0].textContent,
+                        unit_qty: item.getElementsByTagName('UnitQty')[0].textContent,
+                        price: item.getElementsByTagName('ItemPrice')[0].textContent
+                    }));
+                    if (items.length > 0) {
+                        const randomItem = items[Math.floor(Math.random() * items.length)];
+                        displayItemInfo(randomItem);
+                    } else {
+                        document.getElementById('content').innerHTML += '<p>No items found for this store.</p>';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching items:', error);
+                });
+        }
+
+        // Function to display the item information
+        function displayItemInfo(item) {
+            const contentDiv = document.getElementById('content');
+            contentDiv.innerHTML += `
+                <div class="item">
+                    <h2>Item Information</h2>
+                    <p><strong>Item Name:</strong> ${item.name}</p>
+                    <p><strong>Quantity:</strong> ${item.quantity}</p>
+                    <p><strong>Unit Quantity:</strong> ${item.unit_qty}</p>
+                    <p><strong>Item Price:</strong> ${item.price}</p>
+                </div>
+            `;
+        }
+
+        // Shuffle items when the button is clicked
+        document.getElementById('shuffleButton').addEventListener('click', () => {
+            if (currentStoreId) {
+                fetchRandomItem(currentStoreId);
+            }
+        });
+
+        // Utility function to calculate distance between two coordinates
+        function getDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371; // Radius of the earth in km
+            const dLat = deg2rad(lat2 - lat1);
+            const dLon = deg2rad(lon1 - lon2);
+            const a =
+                Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            const distance = R * c; // Distance in km
+            return distance;
+        }
+
+        function deg2rad(deg) {
+            return deg * (Math.PI / 180);
+        }
+
+        // Error handling for geolocation
+        function showError(error) {
+            switch (error.code) {
+                case error.PERMISSION_DENIED:
+                    alert("User denied the request for Geolocation.");
+                    break;
+                case error.POSITION_UNAVAILABLE:
+                    alert("Location information is unavailable.");
+                    break;
+                case error.TIMEOUT:
+                    alert("The request to get user location timed out.");
+                    break;
+                case error.UNKNOWN_ERROR:
+                    alert("An unknown error occurred.");
+                    break;
+            }
+        }
+    </script>
+</body>
+</html>
