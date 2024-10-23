@@ -1,6 +1,0 @@
-# Ignore a specific file
-package.json
-package-lock.json
-
-# Ignore a directory
-/node_modules
